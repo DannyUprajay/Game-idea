@@ -61,6 +61,10 @@ var _hand_lights: Array[OmniLight3D] = []
 var _legs: Array[Node3D] = []
 var _cape: Node3D
 var _aura: GPUParticles3D
+var _dust: GPUParticles3D
+
+## Intensité de l'effet de vitesse (0 = rien, 1 = vol à pleine vitesse).
+var speed_effect := 0.0
 
 
 func _ready() -> void:
@@ -155,6 +159,24 @@ func _build_model() -> void:
 	_aura.position = Vector3(0, -0.4, 0)
 	_aura.emitting = false
 	_model.add_child(_aura)
+
+	# Poussière soulevée par les pieds quand on court.
+	_dust = FX.particles(30, 0.7, 0.6, [Color(0.75, 0.7, 0.65, 0), Color(0.7, 0.65, 0.6, 0.45), Color(0.6, 0.55, 0.5, 0)], [0.0, 0.2, 1.0])
+	((_dust.draw_pass_1 as QuadMesh).material as StandardMaterial3D).blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	var dm := _dust.process_material as ParticleProcessMaterial
+	dm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	dm.emission_box_extents = Vector3(0.3, 0.05, 0.3)
+	dm.direction = Vector3(0, 1, 0)
+	dm.spread = 50.0
+	dm.initial_velocity_min = 0.5
+	dm.initial_velocity_max = 1.5
+	dm.gravity = Vector3(0, 0.5, 0)
+	dm.damping_min = 1.0
+	dm.damping_max = 2.0
+	_dust.local_coords = false
+	_dust.position = Vector3(0, 0.1, 0)
+	_dust.emitting = false
+	add_child(_dust)
 
 
 func _add_part(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3) -> MeshInstance3D:
@@ -489,9 +511,19 @@ func _process(delta: float) -> void:
 	var cape_angle: float = clampf(speed * 0.05, 0.08, 1.35) + sin(_anim_time * 7.0) * 0.05 * clampf(speed * 0.1, 0.2, 1.0)
 	_cape.rotation.x = lerpf(_cape.rotation.x, -cape_angle, clampf(delta * 8.0, 0.0, 1.0))
 
-	# Caméra : champ de vision plus large en vol rapide + tremblement.
-	var boosting := flying and Input.is_action_pressed("sprint") and speed > fly_speed
-	camera.fov = lerpf(camera.fov, 92.0 if boosting else 75.0, clampf(delta * 4.0, 0.0, 1.0))
+	# Effet de vitesse : léger en courant, fort en vol rapide.
+	var target_fx := 0.0
+	if flying:
+		target_fx = clampf((speed - fly_speed) / (fly_boost_speed - fly_speed), 0.0, 1.0)
+	elif is_on_floor() and Input.is_action_pressed("sprint"):
+		target_fx = clampf((hvel.length() - walk_speed) / (sprint_speed - walk_speed), 0.0, 1.0) * 0.45
+	speed_effect = lerpf(speed_effect, target_fx, clampf(delta * 5.0, 0.0, 1.0))
+	_dust.emitting = not flying and is_on_floor() and hvel.length() > walk_speed + 1.0
+
+	# Caméra : champ de vision plus large avec la vitesse + tremblement.
+	camera.fov = lerpf(camera.fov, 75.0 + speed_effect * 22.0, clampf(delta * 4.0, 0.0, 1.0))
+	if speed_effect > 0.6:
+		_shake = maxf(_shake, (speed_effect - 0.6) * 0.5)
 	_shake = maxf(_shake - delta * 2.5, 0.0)
 	var s := _shake * _shake
 	camera.h_offset = randf_range(-1.0, 1.0) * s * 0.6

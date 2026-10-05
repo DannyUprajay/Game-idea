@@ -2,6 +2,40 @@ extends CanvasLayer
 ## Interface : viseur, vie, énergie, pouvoirs, score et aide.
 
 
+const SPEED_LINES_SHADER := """
+shader_type canvas_item;
+uniform float intensity : hint_range(0.0, 1.0) = 0.0;
+float hash(float n) {
+	return fract(sin(n * 12.9898) * 43758.5453);
+}
+void fragment() {
+	vec2 uv = UV - 0.5;
+	uv.x *= SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;
+	float r = length(uv);
+	float angle = atan(uv.y, uv.x) / 6.2831853 + 0.5;
+	float count = 140.0;
+	float id = floor(angle * count);
+	float rnd = hash(id);
+	float rnd2 = hash(id + 71.0);
+	// Chaque ligne est un trait fin qui file vers l'extérieur.
+	float cell = fract(angle * count);
+	float width = 0.08 + rnd * 0.18;
+	float line = 1.0 - smoothstep(0.0, width, abs(cell - 0.5));
+	float seg = fract(r * (1.5 + rnd2 * 2.0) - TIME * (1.5 + rnd * 2.5) + rnd2 * 7.0);
+	float streak = smoothstep(0.0, 0.25, seg) * (1.0 - smoothstep(0.55, 1.0, seg));
+	float present = step(0.35 - intensity * 0.3, rnd2);
+	// Le centre de l'écran reste dégagé.
+	float inner = mix(0.62, 0.3, intensity) + rnd * 0.08;
+	float radial = smoothstep(inner, inner + 0.22, r);
+	float a = line * streak * present * radial * intensity * 0.75;
+	float vignette = smoothstep(0.4, 0.9, r) * intensity * 0.35;
+	float total = max(a, vignette);
+	vec3 col = mix(vec3(0.0), vec3(1.0), a / max(a + vignette, 0.0001));
+	COLOR = vec4(col, total);
+}
+"""
+
+
 class Crosshair extends Control:
 	func _ready() -> void:
 		resized.connect(queue_redraw)
@@ -20,6 +54,8 @@ var _fly_label: Label
 var _message: Label
 var _help: Label
 var _damage_overlay: ColorRect
+var _speed_lines: ColorRect
+var _speed_mat: ShaderMaterial
 var _ability_labels: Dictionary = {}
 var _score := 0
 
@@ -35,6 +71,17 @@ func _ready() -> void:
 	_damage_overlay.color = Color(0.8, 0.0, 0.0, 0.0)
 	_damage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_damage_overlay)
+
+	# Lignes de vitesse (invisibles tant qu'on ne va pas vite).
+	_speed_mat = ShaderMaterial.new()
+	_speed_mat.shader = Shader.new()
+	_speed_mat.shader.code = SPEED_LINES_SHADER
+	_speed_lines = ColorRect.new()
+	_speed_lines.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_speed_lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_speed_lines.material = _speed_mat
+	_speed_lines.visible = false
+	root.add_child(_speed_lines)
 
 	var cross := Crosshair.new()
 	cross.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -182,6 +229,11 @@ func set_ability_state(id: String, available: bool, cooldown: float) -> void:
 	var base: String = l.get_meta("base_text")
 	l.text = base if cooldown <= 0.0 else "%s  (%.1f s)" % [base, cooldown]
 	l.modulate = Color(1, 1, 1, 1) if available else Color(1, 1, 1, 0.35)
+
+
+func set_speed_effect(amount: float) -> void:
+	_speed_lines.visible = amount > 0.02
+	_speed_mat.set_shader_parameter("intensity", amount)
 
 
 func flash_damage() -> void:

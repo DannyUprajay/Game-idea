@@ -69,6 +69,7 @@ func _process(delta: float) -> void:
 			_spawn_timer = 2.5
 			_spawn_enemy()
 
+	hud.set_speed_effect(player.speed_effect)
 	hud.set_ability_state("fire", player.energy >= Player.FIREBALL_COST, 0.0)
 	hud.set_ability_state("black_hole", player.black_hole_cd <= 0.0 and player.energy >= Player.BLACK_HOLE_COST, player.black_hole_cd)
 	hud.set_ability_state("shockwave", player.shockwave_cd <= 0.0 and player.energy >= Player.SHOCKWAVE_COST, player.shockwave_cd)
