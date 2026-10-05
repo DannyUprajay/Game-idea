@@ -31,6 +31,8 @@ const BLACK_HOLE_COST := 45.0
 const BLACK_HOLE_COOLDOWN := 7.0
 const SHOCKWAVE_COST := 30.0
 const SHOCKWAVE_COOLDOWN := 3.0
+## Vitesse minimale pour traverser un pilier (le turbo va jusqu'à 36).
+const SMASH_SPEED := 24.0
 
 const HAND_COLOR := Color(1.0, 0.5, 0.15)
 
@@ -257,10 +259,12 @@ func _physics_process(delta: float) -> void:
 	else:
 		_walk(delta, input, sprint)
 
+	var pre_velocity := velocity
 	velocity += _push
 	move_and_slide()
 	velocity -= _push
 	_push = _push.lerp(Vector3.ZERO, clampf(delta * 3.0, 0.0, 1.0))
+	_smash_through(pre_velocity)
 
 	if global_position.y < -40.0:
 		_respawn()
@@ -305,6 +309,20 @@ func _fly(delta: float, input: Vector2, sprint: bool) -> void:
 	# Atterrir : descendre jusqu'au sol.
 	if is_on_floor() and vertical < 0.0:
 		_set_flying(false)
+
+
+## En vol turbo, foncer dans un pilier le fait exploser et on passe à travers.
+func _smash_through(pre_velocity: Vector3) -> void:
+	if not flying or pre_velocity.length() < SMASH_SPEED:
+		return
+	for i in get_slide_collision_count():
+		var hit := get_slide_collision(i)
+		var other := hit.get_collider()
+		if other != null and other.has_method("shatter"):
+			other.shatter(hit.get_position(), pre_velocity)
+			velocity = pre_velocity * 0.85  # on garde presque toute sa vitesse
+			add_shake(0.6)
+			return
 
 
 func _set_flying(value: bool) -> void:

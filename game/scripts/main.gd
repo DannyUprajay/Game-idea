@@ -6,6 +6,7 @@ const FX = preload("res://scripts/fx.gd")
 const Player = preload("res://scripts/player.gd")
 const Enemy = preload("res://scripts/enemy.gd")
 const Hud = preload("res://scripts/hud.gd")
+const Pillar = preload("res://scripts/pillar.gd")
 
 const GROUND_SHADER := """
 shader_type spatial;
@@ -187,7 +188,7 @@ func _build_world() -> void:
 	gmesh.material_override = gmat
 	ground.add_child(gmesh)
 
-	# Grandes tours de pierre, pour slalomer en vol.
+	# Grandes tours de pierre : à éviter... ou à traverser en vol turbo !
 	for i in 45:
 		var angle := _rng.randf() * TAU
 		var dist := _rng.randf_range(30.0, 220.0)
@@ -195,16 +196,14 @@ func _build_world() -> void:
 		var w := _rng.randf_range(4.0, 10.0)
 		var shade := _rng.randf_range(0.25, 0.45)
 		var col := Color(shade, shade * 0.95, shade * 1.1)
-		_add_static_box(Vector3(cos(angle) * dist, h * 0.5, sin(angle) * dist), Vector3(w, h, w), col)
+		var pillar := Pillar.new()
+		pillar.size = Vector3(w, h, w)
+		pillar.color = col
 		# Un liseré lumineux en haut de certaines tours.
 		if i % 3 == 0:
-			var crown := MeshInstance3D.new()
-			var cm := BoxMesh.new()
-			cm.size = Vector3(w + 0.4, 0.4, w + 0.4)
-			crown.mesh = cm
-			crown.material_override = FX.emissive_material(Color(0.4, 0.8, 1.0), 2.5)
-			crown.position = Vector3(cos(angle) * dist, h, sin(angle) * dist)
-			add_child(crown)
+			pillar.crown_color = Color(0.4, 0.8, 1.0)
+		pillar.position = Vector3(cos(angle) * dist, h * 0.5, sin(angle) * dist)
+		add_child(pillar)
 
 	# Îles flottantes.
 	for i in 18:

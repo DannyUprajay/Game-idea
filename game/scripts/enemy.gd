@@ -6,6 +6,7 @@ signal killed
 const FX = preload("res://scripts/fx.gd")
 const Projectile = preload("res://scripts/projectile.gd")
 const Explosion = preload("res://scripts/explosion.gd")
+const Debris = preload("res://scripts/debris.gd")
 
 var max_health := 40.0
 var health := 40.0
@@ -177,9 +178,34 @@ func _die() -> void:
 	_dead = true
 	var boom := Explosion.new()
 	boom.color = Color(1.0, 0.4, 0.15)
-	boom.size = 1.4
+	boom.size = 1.8
 	get_parent().add_child(boom)
 	boom.global_position = global_position
-	FX.shake_cameras(get_tree(), global_position, 0.35)
+	_break_into_pieces()
+	FX.shake_cameras(get_tree(), global_position, 0.45)
 	killed.emit()
 	queue_free()
+
+
+## Le drone se brise : éclats de coque, morceaux de l'anneau et de l'œil.
+func _break_into_pieces() -> void:
+	var metal := FX.solid_material(Color(0.16, 0.17, 0.2), 0.35, 0.8)
+	var glow := FX.emissive_material(Color(1.0, 0.25, 0.15), 3.0)
+	var parent := get_parent()
+	for i in 12:
+		var d := Debris.new()
+		var glowing := i < 4
+		if glowing:
+			d.size = Vector3(randf_range(0.1, 0.2), randf_range(0.1, 0.2), randf_range(0.3, 0.5))
+		else:
+			d.size = Vector3(randf_range(0.25, 0.5), randf_range(0.08, 0.16), randf_range(0.25, 0.5))
+		d.material = glow if glowing else metal
+		d.life = randf_range(4.0, 6.0)
+		# Un éclat sur trois traîne du feu et de la fumée.
+		if i % 3 == 0:
+			d.trail_color = Color(1.0, 0.45, 0.1)
+		parent.add_child(d)
+		var dir := Vector3(randf_range(-1, 1), randf_range(-0.3, 1), randf_range(-1, 1)).normalized()
+		d.global_position = global_position + dir * 0.4
+		d.linear_velocity = dir * randf_range(6.0, 15.0) + Vector3.UP * 3.0 + _push * 0.5
+		d.angular_velocity = Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 12.0

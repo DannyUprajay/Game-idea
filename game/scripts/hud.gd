@@ -123,7 +123,7 @@ func _ready() -> void:
 		"ZQSD / WASD : se déplacer      Souris : viser",
 		"Espace : sauter  (en l'air : s'envoler / monter)",
 		"F : voler / atterrir      Ctrl ou C : descendre",
-		"Maj : courir / turbo en vol",
+		"Maj : courir / turbo en vol (fonce dans les piliers !)",
 		"Clic gauche (maintenu) : boules de feu",
 		"Clic droit : trou noir      E : onde de choc",
 		"Échap : libérer la souris      H : cacher l'aide",
