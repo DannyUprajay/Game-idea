@@ -45,7 +45,9 @@ var pull_radius := 18.0
 var pull_strength := 55.0
 var core_radius := 1.3
 var core_dps := 45.0
-var shooter: Node = null
+var shooter: Node = null:
+	get:
+		return shooter if is_instance_valid(shooter) else null
 
 var _age := 0.0
 var _collapsing := false

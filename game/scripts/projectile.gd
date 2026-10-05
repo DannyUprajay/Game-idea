@@ -54,6 +54,9 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if _done:
 		return
+	# Le tireur a pu être détruit pendant que le projectile volait.
+	if not is_instance_valid(shooter):
+		shooter = null
 	life -= delta
 	var space := get_world_3d().direct_space_state
 	var from := global_position

@@ -7,7 +7,9 @@ var radius := 12.0
 var damage := 25.0
 var impulse := 32.0
 var color := Color(0.4, 0.85, 1.0)
-var shooter: Node = null
+var shooter: Node = null:
+	get:
+		return shooter if is_instance_valid(shooter) else null
 
 
 func _ready() -> void:
