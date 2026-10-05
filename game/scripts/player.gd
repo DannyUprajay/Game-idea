@@ -561,7 +561,8 @@ func _closest_energy_source() -> Node3D:
 		var n := s as Node3D
 		if n == null or not n.has_energy():
 			continue
-		var d := n.get_drain_point().distance_to(global_position + Vector3.UP)
+		var drain_point: Vector3 = n.get_drain_point()
+		var d := drain_point.distance_to(global_position + Vector3.UP)
 		if d < best_d:
 			best_d = d
 			best = n
