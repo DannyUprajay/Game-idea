@@ -148,4 +148,4 @@ static func shake_cameras(tree: SceneTree, origin: Vector3, strength: float) -> 
 	for p in tree.get_nodes_in_group("player"):
 		if p is Node3D and p.has_method("add_shake"):
 			var d: float = (p as Node3D).global_position.distance_to(origin)
-			p.add_shake(strength / max(1.0, d * 0.15))
+			p.add_shake(strength / maxf(1.0, d * 0.15))

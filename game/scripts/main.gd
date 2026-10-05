@@ -62,7 +62,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	# Fait réapparaître des drones ; il y en a de plus en plus.
-	var wanted: int = min(START_ENEMIES + _kills / 4, MAX_ENEMIES)
+	var wanted: int = mini(START_ENEMIES + _kills / 4, MAX_ENEMIES)
 	if get_tree().get_nodes_in_group("enemies").size() < wanted:
 		_spawn_timer -= delta
 		if _spawn_timer <= 0.0:

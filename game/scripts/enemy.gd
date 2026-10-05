@@ -85,7 +85,7 @@ func _physics_process(delta: float) -> void:
 		var target := player.global_position + Vector3.UP * (3.0 + sin(_phase * 1.3) * 1.5)
 		var to_player := target - global_position
 		var dist := to_player.length()
-		var dir := to_player / max(dist, 0.01)
+		var dir := to_player / maxf(dist, 0.01)
 		if dist > 18.0:
 			desired = dir
 		elif dist < 9.0:
@@ -93,34 +93,34 @@ func _physics_process(delta: float) -> void:
 		else:
 			# Tourne autour du joueur.
 			desired = dir.cross(Vector3.UP).normalized() * _orbit_side + dir * 0.15
-		desired.y += clamp(to_player.y * 0.2, -1.0, 1.0)
+		desired.y += clampf(to_player.y * 0.2, -1.0, 1.0)
 
 		# Regarde le joueur.
 		var look_target := player.global_position + Vector3.UP * 1.2
 		if global_position.distance_to(look_target) > 0.5:
 			var wanted := _visual.global_transform.looking_at(look_target, Vector3.UP)
 			var current := _visual.global_transform.basis.orthonormalized()
-			var b := current.slerp(wanted.basis.orthonormalized(), clamp(delta * 6.0, 0.0, 1.0))
+			var b := current.slerp(wanted.basis.orthonormalized(), clampf(delta * 6.0, 0.0, 1.0))
 			_visual.global_transform = Transform3D(b, _visual.global_position)
 
 		_update_shooting(delta, player, dist)
 
-	velocity = velocity.lerp(desired * speed, clamp(delta * 2.0, 0.0, 1.0)) + _push
-	_push = _push.lerp(Vector3.ZERO, clamp(delta * 2.5, 0.0, 1.0))
+	velocity = velocity.lerp(desired * speed, clampf(delta * 2.0, 0.0, 1.0)) + _push
+	_push = _push.lerp(Vector3.ZERO, clampf(delta * 2.5, 0.0, 1.0))
 	if global_position.y < 1.5 and velocity.y < 0.0:
-		velocity.y = abs(velocity.y) * 0.5
+		velocity.y = absf(velocity.y) * 0.5
 	move_and_slide()
 	velocity -= _push
 
 	_ring.rotate_object_local(Vector3.FORWARD, delta * 4.0)
-	_flash = max(_flash - delta * 6.0, 0.0)
+	_flash = maxf(_flash - delta * 6.0, 0.0)
 	_body_mat.emission_energy_multiplier = _flash * 3.0
 
 
 func _update_shooting(delta: float, player: Node3D, dist: float) -> void:
 	_fire_cd -= delta
 	# L'œil s'illumine juste avant le tir : le joueur peut anticiper.
-	var charge: float = clamp(1.0 - _fire_cd / 0.8, 0.0, 1.0)
+	var charge: float = clampf(1.0 - _fire_cd / 0.8, 0.0, 1.0)
 	_eye_mat.emission_energy_multiplier = 3.0 + charge * 10.0
 	_eye_light.light_energy = 0.8 + charge * 4.0
 	if _fire_cd > 0.0:
@@ -160,7 +160,7 @@ func take_damage(amount: float, from: Vector3, silent := false) -> void:
 	health -= amount
 	if not silent:
 		_flash = 1.0
-		_push += (global_position - from).normalized() * min(amount * 0.2, 6.0)
+		_push += (global_position - from).normalized() * minf(amount * 0.2, 6.0)
 	if health <= 0.0:
 		_die()
 

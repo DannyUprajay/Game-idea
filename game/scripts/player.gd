@@ -213,7 +213,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		_yaw.rotation.y -= motion.relative.x * mouse_sensitivity
-		_pitch.rotation.x = clamp(_pitch.rotation.x - motion.relative.y * mouse_sensitivity, -1.35, 1.25)
+		_pitch.rotation.x = clampf(_pitch.rotation.x - motion.relative.y * mouse_sensitivity, -1.35, 1.25)
 	elif event is InputEventMouseButton and event.is_pressed() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		get_viewport().set_input_as_handled()
@@ -238,7 +238,7 @@ func _physics_process(delta: float) -> void:
 	velocity += _push
 	move_and_slide()
 	velocity -= _push
-	_push = _push.lerp(Vector3.ZERO, clamp(delta * 3.0, 0.0, 1.0))
+	_push = _push.lerp(Vector3.ZERO, clampf(delta * 3.0, 0.0, 1.0))
 
 	if global_position.y < -40.0:
 		_respawn()
@@ -259,12 +259,12 @@ func _walk(delta: float, input: Vector2, sprint: bool) -> void:
 	var yaw_basis := _yaw.global_transform.basis
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
 	dir.y = 0
-	dir = dir.normalized() * min(input.length(), 1.0)
+	dir = dir.normalized() * minf(input.length(), 1.0)
 	var target := dir * (sprint_speed if sprint else walk_speed)
 	var accel := 12.0 if is_on_floor() else 3.0
 	var w := 1.0 - exp(-accel * delta)
-	velocity.x = lerp(velocity.x, target.x, w)
-	velocity.z = lerp(velocity.z, target.z, w)
+	velocity.x = lerpf(velocity.x, target.x, w)
+	velocity.z = lerpf(velocity.z, target.z, w)
 
 
 func _fly(delta: float, input: Vector2, sprint: bool) -> void:
@@ -290,7 +290,7 @@ func _set_flying(value: bool) -> void:
 		return
 	flying = value
 	if flying:
-		velocity.y = max(velocity.y, 4.0)
+		velocity.y = maxf(velocity.y, 4.0)
 	_aura.emitting = flying
 	flight_changed.emit(flying)
 
@@ -300,8 +300,8 @@ func _set_flying(value: bool) -> void:
 # ---------------------------------------------------------------------------
 func _update_powers(delta: float) -> void:
 	_fire_timer -= delta
-	black_hole_cd = max(black_hole_cd - delta, 0.0)
-	shockwave_cd = max(shockwave_cd - delta, 0.0)
+	black_hole_cd = maxf(black_hole_cd - delta, 0.0)
+	shockwave_cd = maxf(shockwave_cd - delta, 0.0)
 
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
@@ -367,9 +367,9 @@ func _cast_black_hole() -> void:
 	var from := global_position + Vector3.UP * 1.5
 	var target := _aim_point(40.0)
 	var offset := target - from
-	var dist: float = clamp(offset.length() - 2.0, 8.0, 40.0)
+	var dist: float = clampf(offset.length() - 2.0, 8.0, 40.0)
 	var pos := from + offset.normalized() * dist
-	pos.y = max(pos.y, 3.0)
+	pos.y = maxf(pos.y, 3.0)
 
 	var bh := BlackHole.new()
 	bh.shooter = self
@@ -388,17 +388,17 @@ func _cast_shockwave() -> void:
 
 
 func _use_energy(amount: float) -> void:
-	energy = max(energy - amount, 0.0)
+	energy = maxf(energy - amount, 0.0)
 	energy_changed.emit(energy, MAX_ENERGY)
 
 
 func _update_regen(delta: float) -> void:
 	if energy < MAX_ENERGY:
-		energy = min(energy + ENERGY_REGEN * delta, MAX_ENERGY)
+		energy = minf(energy + ENERGY_REGEN * delta, MAX_ENERGY)
 		energy_changed.emit(energy, MAX_ENERGY)
 	_since_damage += delta
 	if _since_damage > 4.0 and health < MAX_HEALTH:
-		health = min(health + HEALTH_REGEN * delta, MAX_HEALTH)
+		health = minf(health + HEALTH_REGEN * delta, MAX_HEALTH)
 		health_changed.emit(health, MAX_HEALTH)
 
 
@@ -409,7 +409,7 @@ func take_damage(amount: float, _from: Vector3, _silent := false) -> void:
 	health -= amount
 	_since_damage = 0.0
 	add_shake(0.25)
-	health_changed.emit(max(health, 0.0), MAX_HEALTH)
+	health_changed.emit(maxf(health, 0.0), MAX_HEALTH)
 	damaged.emit()
 	if health <= 0.0:
 		_respawn()
@@ -432,7 +432,7 @@ func _respawn() -> void:
 
 
 func add_shake(amount: float) -> void:
-	_shake = min(_shake + amount, 1.2)
+	_shake = minf(_shake + amount, 1.2)
 
 
 # ---------------------------------------------------------------------------
@@ -447,52 +447,52 @@ func _process(delta: float) -> void:
 	var speed := velocity.length()
 
 	# Le personnage se tourne toujours vers où regarde la caméra.
-	_model.rotation.y = lerp_angle(_model.rotation.y, cam_yaw, clamp(delta * 12.0, 0.0, 1.0))
+	_model.rotation.y = lerp_angle(_model.rotation.y, cam_yaw, clampf(delta * 12.0, 0.0, 1.0))
 
 	# Inclinaison du corps : penché en avant en vol, selon la vitesse.
 	var tilt := 0.0
 	var roll := 0.0
 	var bob := 0.0
 	if flying:
-		tilt = clamp(-local_vel.z / fly_boost_speed, -0.4, 1.0) * 1.1
-		roll = clamp(-local_vel.x / fly_speed, -1.0, 1.0) * 0.35
+		tilt = clampf(-local_vel.z / fly_boost_speed, -0.4, 1.0) * 1.1
+		roll = clampf(-local_vel.x / fly_speed, -1.0, 1.0) * 0.35
 		bob = sin(_anim_time * 2.5) * 0.08
-	_model.rotation.x = lerp(_model.rotation.x, -tilt, clamp(delta * 6.0, 0.0, 1.0))
-	_model.rotation.z = lerp(_model.rotation.z, roll, clamp(delta * 6.0, 0.0, 1.0))
+	_model.rotation.x = lerpf(_model.rotation.x, -tilt, clampf(delta * 6.0, 0.0, 1.0))
+	_model.rotation.z = lerpf(_model.rotation.z, roll, clampf(delta * 6.0, 0.0, 1.0))
 	_model.position.y = 1.0 + bob
 
 	# Jambes : marche au sol, tendues vers l'arrière en vol.
 	var stride := 0.0
 	if not flying and is_on_floor():
-		stride = sin(_anim_time * (6.0 + hvel.length())) * clamp(hvel.length() / sprint_speed, 0.0, 1.0) * 0.8
+		stride = sin(_anim_time * (6.0 + hvel.length())) * clampf(hvel.length() / sprint_speed, 0.0, 1.0) * 0.8
 	for i in _legs.size():
 		var target_leg := -0.35 + sin(_anim_time * 3.0 + i) * 0.1 if flying else stride * (1.0 if i == 0 else -1.0)
-		_legs[i].rotation.x = lerp(_legs[i].rotation.x, target_leg, clamp(delta * 10.0, 0.0, 1.0))
+		_legs[i].rotation.x = lerpf(_legs[i].rotation.x, target_leg, clampf(delta * 10.0, 0.0, 1.0))
 
 	# Bras : levés vers la cible quand on lance un sort, sinon ballants.
 	for i in _arms.size():
-		_arm_raise[i] = max(_arm_raise[i] - delta * 2.5, 0.0)
-		var raise: float = max(_arm_raise[i], _both_arms)
+		_arm_raise[i] = maxf(_arm_raise[i] - delta * 2.5, 0.0)
+		var raise: float = maxf(_arm_raise[i], _both_arms)
 		var idle := -0.15 + sin(_anim_time * 2.0 + i) * 0.05
 		if not flying:
 			idle -= stride * (1.0 if i == 0 else -1.0) * 0.6
 		else:
 			idle = 0.35  # bras un peu en arrière en vol
 		var aimed := PI * 0.5 + aim_pitch
-		var target_arm: float = lerp(idle, aimed, clamp(raise * 1.6, 0.0, 1.0))
-		_arms[i].rotation.x = lerp(_arms[i].rotation.x, target_arm, clamp(delta * 18.0, 0.0, 1.0))
-		_hand_lights[i].light_energy = max(_hand_lights[i].light_energy - delta * 12.0, 0.6 if raise > 0.0 else 0.0)
+		var target_arm: float = lerpf(idle, aimed, clampf(raise * 1.6, 0.0, 1.0))
+		_arms[i].rotation.x = lerpf(_arms[i].rotation.x, target_arm, clampf(delta * 18.0, 0.0, 1.0))
+		_hand_lights[i].light_energy = maxf(_hand_lights[i].light_energy - delta * 12.0, 0.6 if raise > 0.0 else 0.0)
 		_hand_mats[i].emission_energy_multiplier = 1.0 + _hand_lights[i].light_energy * 1.5
-	_both_arms = max(_both_arms - delta * 2.0, 0.0)
+	_both_arms = maxf(_both_arms - delta * 2.0, 0.0)
 
 	# Cape : flotte selon la vitesse.
-	var cape_angle: float = clamp(speed * 0.05, 0.08, 1.35) + sin(_anim_time * 7.0) * 0.05 * clamp(speed * 0.1, 0.2, 1.0)
-	_cape.rotation.x = lerp(_cape.rotation.x, -cape_angle, clamp(delta * 8.0, 0.0, 1.0))
+	var cape_angle: float = clampf(speed * 0.05, 0.08, 1.35) + sin(_anim_time * 7.0) * 0.05 * clampf(speed * 0.1, 0.2, 1.0)
+	_cape.rotation.x = lerpf(_cape.rotation.x, -cape_angle, clampf(delta * 8.0, 0.0, 1.0))
 
 	# Caméra : champ de vision plus large en vol rapide + tremblement.
 	var boosting := flying and Input.is_action_pressed("sprint") and speed > fly_speed
-	camera.fov = lerp(camera.fov, 92.0 if boosting else 75.0, clamp(delta * 4.0, 0.0, 1.0))
-	_shake = max(_shake - delta * 2.5, 0.0)
+	camera.fov = lerpf(camera.fov, 92.0 if boosting else 75.0, clampf(delta * 4.0, 0.0, 1.0))
+	_shake = maxf(_shake - delta * 2.5, 0.0)
 	var s := _shake * _shake
 	camera.h_offset = randf_range(-1.0, 1.0) * s * 0.6
 	camera.v_offset = randf_range(-1.0, 1.0) * s * 0.6

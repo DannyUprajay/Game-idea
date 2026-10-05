@@ -142,7 +142,7 @@ func _physics_process(delta: float) -> void:
 		var d := to_center.length()
 		if d > pull_radius:
 			continue
-		var dir := to_center / max(d, 0.01)
+		var dir := to_center / maxf(d, 0.01)
 		var tangent := dir.cross(Vector3.UP).normalized()
 		var force := pull_strength * (1.0 - d / pull_radius) + 6.0
 		if n.has_method("apply_pull"):
@@ -159,7 +159,7 @@ func _physics_process(delta: float) -> void:
 		var dist := off.length()
 		if dist > pull_radius:
 			continue
-		var pdir := off / max(dist, 0.01)
+		var pdir := off / maxf(dist, 0.01)
 		var ptan := pdir.cross(Vector3.UP).normalized()
 		var f := pull_strength * (1.0 - dist / pull_radius) + 4.0
 		body.apply_central_force((pdir + ptan * 0.5) * f * body.mass)
