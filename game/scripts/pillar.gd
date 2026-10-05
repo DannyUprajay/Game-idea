@@ -57,7 +57,7 @@ func shatter(impact: Vector3, impact_velocity: Vector3) -> void:
 	visible = false
 
 	# Découpe le pilier en une grille de blocs d'environ la même taille.
-	var cell := pow(size.x * size.y * size.z / float(PIECES), 1.0 / 3.0)
+	var cell: float = pow(size.x * size.y * size.z / float(PIECES), 1.0 / 3.0)
 	var nx := clampi(roundi(size.x / cell), 1, 4)
 	var ny := clampi(roundi(size.y / cell), 2, 14)
 	var nz := clampi(roundi(size.z / cell), 1, 4)

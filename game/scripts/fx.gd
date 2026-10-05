@@ -115,21 +115,26 @@ static func particles(amount: int, lifetime: float, quad_size: float, colors: Ar
 
 
 ## Dégâts de zone + projection, avec une baisse selon la distance.
+## `groups` : groupes de nœuds touchés (ex. ["enemies", "civilians", "cars"]).
+## `attacker` : qui attaque (il n'est jamais touché par sa propre attaque).
 static func radial_damage(tree: SceneTree, center: Vector3, radius: float, damage: float,
-		impulse: float, target_group: String, exclude: Node = null) -> void:
-	for n in tree.get_nodes_in_group(target_group):
-		if n == exclude or not (n is Node3D):
-			continue
-		var offset: Vector3 = (n as Node3D).global_position - center
-		var d := offset.length()
-		if d > radius:
-			continue
-		var falloff := 1.0 - d / radius
-		var dir := (offset.normalized() + Vector3.UP * 0.35).normalized()
-		if n.has_method("take_damage"):
-			n.take_damage(damage * falloff, center)
-		if n.has_method("apply_push"):
-			n.apply_push(dir * impulse * falloff)
+		impulse: float, groups: Array, attacker: Node = null) -> void:
+	if attacker != null and not is_instance_valid(attacker):
+		attacker = null
+	for g in groups:
+		for n in tree.get_nodes_in_group(String(g)):
+			if n == attacker or not (n is Node3D):
+				continue
+			var offset: Vector3 = (n as Node3D).global_position - center
+			var d := offset.length()
+			if d > radius:
+				continue
+			var falloff := 1.0 - d / radius
+			var dir := (offset.normalized() + Vector3.UP * 0.35).normalized()
+			if n.has_method("take_damage"):
+				n.take_damage(damage * falloff, center, false, attacker)
+			if n.has_method("apply_push"):
+				n.apply_push(dir * impulse * falloff)
 	for p in tree.get_nodes_in_group("props"):
 		var body := p as RigidBody3D
 		if body == null:
@@ -141,6 +146,12 @@ static func radial_damage(tree: SceneTree, center: Vector3, radius: float, damag
 		var f := 1.0 - dist / radius
 		var push_dir := (off.normalized() + Vector3.UP * 0.5).normalized()
 		body.apply_central_impulse(push_dir * impulse * f * body.mass * 0.6)
+
+
+## Prévient le gestionnaire de partie (main.gd) d'un événement : XP, karma...
+static func notify(tree: SceneTree, method: String, args: Array = []) -> void:
+	for g in tree.get_nodes_in_group("game"):
+		g.callv(method, args)
 
 
 ## Fait trembler la caméra du joueur selon la distance à l'explosion.

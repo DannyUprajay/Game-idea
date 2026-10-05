@@ -9,6 +9,8 @@ const Explosion = preload("res://scripts/explosion.gd")
 const Debris = preload("res://scripts/debris.gd")
 
 var max_health := 40.0
+## XP gagnée en le détruisant.
+var xp_value := 25
 var health := 40.0
 var speed := 7.0
 var fire_interval := 3.0
@@ -140,8 +142,8 @@ func _update_shooting(delta: float, player: Node3D, dist: float) -> void:
 	p.splash_radius = 2.0
 	p.splash_impulse = 6.0
 	p.explosion_size = 0.6
-	p.collision_mask = 1 | 2
-	p.target_group = "player"
+	p.collision_mask = 1 | 2 | 16
+	p.target_groups = ["player", "civilians"]
 	p.shooter = self
 	p.life = 4.0
 	get_parent().add_child(p)
@@ -155,7 +157,7 @@ func _find_player() -> Node3D:
 	return players[0] as Node3D
 
 
-func take_damage(amount: float, from: Vector3, silent := false) -> void:
+func take_damage(amount: float, from: Vector3, silent := false, _attacker: Node = null) -> void:
 	if _dead:
 		return
 	health -= amount
@@ -184,6 +186,7 @@ func _die() -> void:
 	_break_into_pieces()
 	FX.shake_cameras(get_tree(), global_position, 0.45)
 	killed.emit()
+	FX.notify(get_tree(), "on_enemy_killed", [xp_value, global_position])
 	queue_free()
 
 

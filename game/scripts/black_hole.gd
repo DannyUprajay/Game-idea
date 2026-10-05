@@ -40,6 +40,8 @@ void fragment() {
 }
 """
 
+## Multiplicateur donné par les améliorations.
+var power := 1.0
 var life := 6.0
 var pull_radius := 18.0
 var pull_strength := 55.0
@@ -57,6 +59,8 @@ var _light: OmniLight3D
 
 
 func _ready() -> void:
+	life *= power
+	pull_radius *= power
 	# Lentille qui déforme le décor derrière.
 	var lens_mat := ShaderMaterial.new()
 	lens_mat.shader = Shader.new()
@@ -136,7 +140,7 @@ func _physics_process(delta: float) -> void:
 	var center := global_position
 
 	# Ennemis : aspirés, et broyés s'ils touchent le centre.
-	for e in get_tree().get_nodes_in_group("enemies"):
+	for e in _victims():
 		var n := e as Node3D
 		if n == null:
 			continue
@@ -150,7 +154,7 @@ func _physics_process(delta: float) -> void:
 		if n.has_method("apply_pull"):
 			n.apply_pull((dir + tangent * 0.35) * force * delta)
 		if d < core_radius * 1.8 and n.has_method("take_damage"):
-			n.take_damage(core_dps * delta, center, true)
+			n.take_damage(core_dps * delta, center, true, shooter)
 
 	# Objets physiques (caisses) : attirés et mis en orbite.
 	for p in get_tree().get_nodes_in_group("props"):
@@ -169,6 +173,14 @@ func _physics_process(delta: float) -> void:
 			body.linear_velocity *= 0.92
 
 
+## Tout ce que le trou noir aspire : ennemis et civils.
+func _victims() -> Array:
+	var list: Array = []
+	list.append_array(get_tree().get_nodes_in_group("enemies"))
+	list.append_array(get_tree().get_nodes_in_group("civilians"))
+	return list
+
+
 func _collapse() -> void:
 	_collapsing = true
 	var t := create_tween()
@@ -178,7 +190,7 @@ func _collapse() -> void:
 
 func _detonate() -> void:
 	var pos := global_position
-	FX.radial_damage(get_tree(), pos, 11.0, 50.0, 28.0, "enemies", shooter)
+	FX.radial_damage(get_tree(), pos, 11.0 * power, 50.0 * power, 28.0, ["enemies", "civilians", "cars"], shooter)
 	FX.shake_cameras(get_tree(), pos, 0.9)
 	var boom := Explosion.new()
 	boom.color = Color(0.65, 0.35, 1.0)

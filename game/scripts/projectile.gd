@@ -1,5 +1,5 @@
 extends Node3D
-## Projectile magique (boule de feu du joueur, orbe des ennemis).
+## Projectile : boule de feu du joueur, orbe des drones, balle des soldats.
 ## Régler les variables avant de l'ajouter à la scène, puis placer global_position.
 
 const FX = preload("res://scripts/fx.gd")
@@ -15,8 +15,11 @@ var radius := 0.3
 var life := 3.0
 var explosion_size := 1.0
 var collision_mask := 1
-var target_group := "enemies"
+## Groupes qui subissent les dégâts de zone.
+var target_groups: Array = ["enemies"]
 var shooter: Node = null
+## Version légère (balles) : pas de lumière ni de particules, petit impact.
+var is_bullet := false
 
 var _shape := SphereShape3D.new()
 var _done := false
@@ -24,6 +27,15 @@ var _done := false
 
 func _ready() -> void:
 	_shape.radius = radius
+
+	if is_bullet:
+		# Balle traçante : un trait lumineux étiré dans la direction du tir.
+		var tracer := FX.sphere(radius, FX.emissive_material(color, 6.0), 8)
+		tracer.scale = Vector3(1, 1, 6)
+		add_child(tracer)
+		if velocity.length() > 0.1:
+			look_at(global_position + velocity, Vector3.UP if absf(velocity.normalized().y) < 0.99 else Vector3.RIGHT)
+		return
 
 	# Noyau très lumineux.
 	var core := FX.sphere(radius, FX.emissive_material(color.lightened(0.5), 8.0), 16)
@@ -37,9 +49,9 @@ func _ready() -> void:
 	light.omni_range = 6.0
 	add_child(light)
 
-	# Traînée de flammes laissée derrière.
+	# Traînée laissée derrière.
 	var trail := FX.particles(48, 0.45, radius * 2.4,
-		[Color(1, 0.95, 0.7, 1), color, Color(color.r * 0.5, color.g * 0.2, 0.05, 0)], [0.0, 0.3, 1.0])
+		[Color(1, 0.95, 0.8, 1), color, Color(color.r * 0.5, color.g * 0.5, color.b * 0.5, 0)], [0.0, 0.3, 1.0])
 	trail.local_coords = false
 	var pm := trail.process_material as ParticleProcessMaterial
 	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
@@ -87,19 +99,25 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if life <= 0.0:
-		_explode(global_position, null)
+		if is_bullet:
+			queue_free()
+		else:
+			_explode(global_position, null)
 
 
 func _explode(pos: Vector3, collider: Object) -> void:
 	_done = true
 	if collider != null and collider != shooter and collider.has_method("take_damage"):
-		collider.take_damage(damage, pos)
-	FX.radial_damage(get_tree(), pos, splash_radius, splash_damage, splash_impulse, target_group, shooter)
-	FX.shake_cameras(get_tree(), pos, 0.25 * explosion_size)
+		collider.take_damage(damage, pos, false, shooter)
+	if splash_damage > 0.0:
+		FX.radial_damage(get_tree(), pos, splash_radius, splash_damage, splash_impulse, target_groups, shooter)
+	if not is_bullet:
+		FX.shake_cameras(get_tree(), pos, 0.25 * explosion_size)
 
 	var boom := Explosion.new()
 	boom.color = color
 	boom.size = explosion_size
+	boom.light_only = is_bullet
 	get_parent().add_child(boom)
 	boom.global_position = pos
 	queue_free()

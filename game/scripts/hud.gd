@@ -1,6 +1,6 @@
 extends CanvasLayer
-## Interface : viseur, vie, énergie, pouvoirs, score et aide.
-
+## Interface en jeu : viseur, vie, énergie, pouvoirs, karma, niveau, mission,
+## marqueur d'objectif, messages, barre du boss, effets de vitesse et de dégâts.
 
 const SPEED_LINES_SHADER := """
 shader_type canvas_item;
@@ -35,29 +35,88 @@ void fragment() {
 }
 """
 
-
 class Crosshair extends Control:
 	func _ready() -> void:
 		resized.connect(queue_redraw)
 
 	func _draw() -> void:
 		var c := size * 0.5
-		var col := Color(1, 1, 1, 0.9)
-		draw_circle(c, 2.5, col)
+		draw_circle(c, 2.5, Color(1, 1, 1, 0.9))
 		draw_arc(c, 11.0, 0.0, TAU, 32, Color(1, 1, 1, 0.35), 1.5)
+
+
+## Jauge de karma : rouge (infâme) à gauche, bleu (héros) à droite.
+class KarmaBar extends Control:
+	const EVIL := Color(1.0, 0.2, 0.15)
+	const GOOD := Color(0.35, 0.7, 1.0)
+	var value := 0.0
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var steps := 40
+		for i in steps:
+			var t := float(i) / steps
+			var col: Color
+			if t < 0.5:
+				col = EVIL.lerp(Color(0.5, 0.5, 0.5), t * 2.0)
+			else:
+				col = Color(0.5, 0.5, 0.5).lerp(GOOD, (t - 0.5) * 2.0)
+			col.a = 0.85
+			draw_rect(Rect2(w * t, 0, w / steps + 1.0, h), col)
+		var x := (value + 100.0) / 200.0 * w
+		draw_rect(Rect2(x - 2.0, -4.0, 4.0, h + 8.0), Color(1, 1, 1))
+		draw_rect(Rect2(0, 0, w, h), Color(0, 0, 0, 0.8), false, 1.5)
+
+
+## Marqueur d'objectif : losange sur la cible, ou flèche au bord de l'écran.
+class ObjectiveMarker extends Control:
+	var active := false
+	var on_screen := true
+	var pos := Vector2.ZERO
+	var direction := Vector2.RIGHT
+	var label := ""
+	var color := Color(1.0, 0.8, 0.2)
+
+	func _draw() -> void:
+		if not active:
+			return
+		if on_screen:
+			var pts := PackedVector2Array([pos + Vector2(0, -14), pos + Vector2(10, 0), pos + Vector2(0, 14), pos + Vector2(-10, 0)])
+			draw_colored_polygon(pts, Color(color.r, color.g, color.b, 0.85))
+			draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0, 0, 0, 0.8), 2.0)
+		else:
+			var side := Vector2(-direction.y, direction.x)
+			var tip := pos + direction * 16.0
+			var pts2 := PackedVector2Array([tip, pos - direction * 6.0 + side * 12.0, pos - direction * 6.0 - side * 12.0])
+			draw_colored_polygon(pts2, Color(color.r, color.g, color.b, 0.9))
+		var font := get_theme_default_font()
+		draw_string_outline(font, pos + Vector2(-40, 34), label, HORIZONTAL_ALIGNMENT_CENTER, 80, 16, 4, Color(0, 0, 0, 0.9))
+		draw_string(font, pos + Vector2(-40, 34), label, HORIZONTAL_ALIGNMENT_CENTER, 80, 16, color)
 
 
 var _health_bar: ProgressBar
 var _energy_bar: ProgressBar
-var _score_label: Label
+var _xp_bar: ProgressBar
+var _level_label: Label
+var _karma_bar: KarmaBar
+var _karma_label: Label
 var _fly_label: Label
 var _message: Label
 var _help: Label
+var _objective_title: Label
+var _objective_text: Label
+var _prompt: Label
+var _prompt_bar: ProgressBar
+var _feed: VBoxContainer
+var _boss_box: VBoxContainer
+var _boss_bar: ProgressBar
 var _damage_overlay: ColorRect
 var _speed_lines: ColorRect
 var _speed_mat: ShaderMaterial
+var _marker: ObjectiveMarker
+var _marker_world := Vector3.ZERO
 var _ability_labels: Dictionary = {}
-var _score := 0
 
 
 func _ready() -> void:
@@ -72,7 +131,6 @@ func _ready() -> void:
 	_damage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_damage_overlay)
 
-	# Lignes de vitesse (invisibles tant qu'on ne va pas vite).
 	_speed_mat = ShaderMaterial.new()
 	_speed_mat.shader = Shader.new()
 	_speed_mat.shader.code = SPEED_LINES_SHADER
@@ -88,50 +146,107 @@ func _ready() -> void:
 	cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(cross)
 
-	# Barres en bas à gauche.
+	_marker = ObjectiveMarker.new()
+	_marker.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_marker)
+
+	# --- En bas à gauche : vie et énergie ---
 	var bars := VBoxContainer.new()
 	_place(bars, Vector4(0, 1, 0, 1), Vector4(30, -96, 450, -30))
 	bars.add_theme_constant_override("separation", 8)
 	root.add_child(bars)
-	_health_bar = _make_bar(bars, "VIE", Color(0.9, 0.2, 0.25))
-	_energy_bar = _make_bar(bars, "ÉNERGIE", Color(0.25, 0.6, 1.0))
+	_health_bar = _make_bar(bars, "VIE", Color(0.9, 0.2, 0.25), 320)
+	_energy_bar = _make_bar(bars, "ÉNERGIE", Color(0.25, 0.6, 1.0), 320)
 
-	# Pouvoirs en bas au centre.
+	# --- En bas au centre : pouvoirs ---
 	var abilities := HBoxContainer.new()
-	_place(abilities, Vector4(0.5, 1, 0.5, 1), Vector4(-360, -80, 360, -24))
+	_place(abilities, Vector4(0.5, 1, 0.5, 1), Vector4(-380, -80, 380, -24))
 	abilities.alignment = BoxContainer.ALIGNMENT_CENTER
 	abilities.add_theme_constant_override("separation", 14)
 	root.add_child(abilities)
-	_ability_labels["fire"] = _make_ability(abilities, "Clic gauche", "Boule de feu", Color(1, 0.55, 0.2))
-	_ability_labels["black_hole"] = _make_ability(abilities, "Clic droit", "Trou noir", Color(0.7, 0.4, 1.0))
+	_ability_labels["fire"] = _make_ability(abilities, "Clic gauche", "Boule d'énergie", Color(1, 0.55, 0.2))
 	_ability_labels["shockwave"] = _make_ability(abilities, "E", "Onde de choc", Color(0.4, 0.85, 1.0))
+	_ability_labels["black_hole"] = _make_ability(abilities, "Clic droit", "Trou noir", Color(0.7, 0.4, 1.0))
 
-	_score_label = _make_label(root, "Drones détruits : 0", 26)
-	_place(_score_label, Vector4(1, 0, 1, 0), Vector4(-430, 20, -24, 56))
-	_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-
-	_fly_label = _make_label(root, "", 22)
-	_place(_fly_label, Vector4(1, 0, 1, 0), Vector4(-430, 60, -24, 92))
+	# --- En haut à droite : niveau, XP, karma ---
+	var stats := VBoxContainer.new()
+	_place(stats, Vector4(1, 0, 1, 0), Vector4(-360, 18, -24, 150))
+	stats.add_theme_constant_override("separation", 6)
+	root.add_child(stats)
+	_level_label = _make_label(stats, "Niveau 1", 22)
+	_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_xp_bar = _make_bar(stats, "XP", Color(0.95, 0.8, 0.3), 260)
+	_karma_label = _make_label(stats, "Karma : Neutre", 18)
+	_karma_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_karma_bar = KarmaBar.new()
+	_karma_bar.custom_minimum_size = Vector2(336, 14)
+	stats.add_child(_karma_bar)
+	_fly_label = _make_label(stats, "", 18)
 	_fly_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_fly_label.add_theme_color_override("font_color", Color(1, 0.75, 0.35))
+	_fly_label.add_theme_color_override("font_color", Color(1, 0.8, 0.4))
+
+	# --- En haut à gauche : mission ---
+	var mission := VBoxContainer.new()
+	_place(mission, Vector4(0, 0, 0, 0), Vector4(24, 18, 560, 160))
+	root.add_child(mission)
+	_objective_title = _make_label(mission, "MISSION", 15)
+	_objective_title.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+	_objective_text = _make_label(mission, "", 20)
+	_objective_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_objective_text.custom_minimum_size = Vector2(520, 0)
+
+	# --- Sous le viseur : interaction ---
+	var prompt_box := VBoxContainer.new()
+	_place(prompt_box, Vector4(0.5, 0.5, 0.5, 0.5), Vector4(-300, 60, 300, 130))
+	prompt_box.alignment = BoxContainer.ALIGNMENT_BEGIN
+	root.add_child(prompt_box)
+	_prompt = _make_label(prompt_box, "", 18)
+	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt_bar = ProgressBar.new()
+	_prompt_bar.custom_minimum_size = Vector2(200, 8)
+	_prompt_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_prompt_bar.show_percentage = false
+	_prompt_bar.max_value = 1.0
+	_style_bar(_prompt_bar, Color(0.4, 1.0, 0.6))
+	_prompt_bar.visible = false
+	prompt_box.add_child(_prompt_bar)
+
+	# --- À droite : fil des récompenses (+XP, karma...) ---
+	_feed = VBoxContainer.new()
+	_place(_feed, Vector4(1, 0.5, 1, 0.5), Vector4(-320, -80, -24, 120))
+	_feed.alignment = BoxContainer.ALIGNMENT_END
+	root.add_child(_feed)
+
+	# --- En haut au centre : barre du boss ---
+	_boss_box = VBoxContainer.new()
+	_place(_boss_box, Vector4(0.5, 0, 0.5, 0), Vector4(-320, 20, 320, 80))
+	root.add_child(_boss_box)
+	var boss_name := _make_label(_boss_box, "LE COLOSSE", 22)
+	boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_name.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25))
+	_boss_bar = ProgressBar.new()
+	_boss_bar.custom_minimum_size = Vector2(640, 18)
+	_boss_bar.show_percentage = false
+	_style_bar(_boss_bar, Color(0.9, 0.15, 0.1))
+	_boss_box.add_child(_boss_bar)
+	_boss_box.visible = false
 
 	_message = _make_label(root, "", 34)
-	_place(_message, Vector4(0.5, 0.3, 0.5, 0.3), Vector4(-500, 0, 500, 50))
+	_place(_message, Vector4(0.5, 0.28, 0.5, 0.28), Vector4(-560, 0, 560, 90))
 	_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	_help = _make_label(root, "\n".join([
-		"ZQSD / WASD : se déplacer      Souris : viser",
-		"Espace : sauter  (en l'air : s'envoler / monter)",
-		"F : voler / atterrir      Ctrl ou C : descendre",
-		"Maj : courir / turbo en vol (fonce dans les piliers !)",
-		"Clic gauche (maintenu) : boules de feu",
-		"Clic droit : trou noir      E : onde de choc",
-		"Échap : libérer la souris      H : cacher l'aide",
-	]), 16)
-	_place(_help, Vector4(0, 0, 0, 0), Vector4(24, 20, 600, 200))
-	_help.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
-
-	set_flying(false)
+		"ZQSD : se déplacer   Souris : viser   Espace : sauter / s'envoler",
+		"F : voler / atterrir   Ctrl : descendre   Maj : courir / turbo",
+		"Clic gauche : boule d'énergie   E : onde de choc   Clic droit : trou noir",
+		"R (maintenir) : absorber l'électricité / soigner un civil",
+		"T (maintenir) : absorber la vie d'un civil (infâme)",
+		"Tab : améliorations   Échap : pause   H : cacher cette aide",
+	]), 15)
+	_place(_help, Vector4(0, 1, 0, 1), Vector4(24, -250, 700, -110))
+	_help.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -139,6 +254,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		_help.visible = not _help.visible
 
 
+func _process(_delta: float) -> void:
+	_update_marker()
+
+
+# ---------------------------------------------------------------------------
+# Construction
+# ---------------------------------------------------------------------------
 ## Place un élément : ancres (gauche, haut, droite, bas) puis marges en pixels.
 func _place(c: Control, anchors: Vector4, offsets: Vector4) -> void:
 	c.anchor_left = anchors.x
@@ -156,31 +278,36 @@ func _make_label(parent: Control, text: String, font_size: int) -> Label:
 	l.text = text
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	l.add_theme_font_size_override("font_size", font_size)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	l.add_theme_constant_override("outline_size", 6)
 	parent.add_child(l)
 	return l
 
 
-func _make_bar(parent: Control, title: String, color: Color) -> ProgressBar:
+func _style_bar(bar: ProgressBar, color: Color) -> void:
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.5)
+	bg.set_corner_radius_all(5)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = color
+	fill.set_corner_radius_all(5)
+	bar.add_theme_stylebox_override("background", bg)
+	bar.add_theme_stylebox_override("fill", fill)
+
+
+func _make_bar(parent: Control, title: String, color: Color, width: float) -> ProgressBar:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
+	row.alignment = BoxContainer.ALIGNMENT_END
 	parent.add_child(row)
 	var l := _make_label(row, title, 16)
-	l.custom_minimum_size = Vector2(80, 0)
+	l.custom_minimum_size = Vector2(66, 0)
 	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(320, 20)
+	bar.custom_minimum_size = Vector2(width, 18)
 	bar.max_value = 100.0
 	bar.value = 100.0
 	bar.show_percentage = false
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.5)
-	bg.set_corner_radius_all(6)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = color
-	fill.set_corner_radius_all(6)
-	bar.add_theme_stylebox_override("background", bg)
-	bar.add_theme_stylebox_override("fill", fill)
+	_style_bar(bar, color)
 	row.add_child(bar)
 	return bar
 
@@ -204,6 +331,9 @@ func _make_ability(parent: Control, key: String, title: String, color: Color) ->
 	return l
 
 
+# ---------------------------------------------------------------------------
+# Mises à jour appelées par le jeu
+# ---------------------------------------------------------------------------
 func set_health(value: float, max_value: float) -> void:
 	_health_bar.max_value = max_value
 	_health_bar.value = value
@@ -218,17 +348,101 @@ func set_flying(flying: bool) -> void:
 	_fly_label.text = "✦ EN VOL ✦" if flying else ""
 
 
-func add_kill() -> void:
-	_score += 1
-	_score_label.text = "Drones détruits : %d" % _score
+func set_level(level: int, xp: int, xp_next: int, points: int) -> void:
+	_level_label.text = "Niveau %d" % level
+	if points > 0:
+		_level_label.text += "   (%d point%s — Tab)" % [points, "s" if points > 1 else ""]
+	_xp_bar.max_value = xp_next
+	_xp_bar.value = xp
 
 
-## Grise un pouvoir indisponible et affiche le temps restant.
-func set_ability_state(id: String, available: bool, cooldown: float) -> void:
+func set_karma(value: float, rank: String, color: Color) -> void:
+	_karma_bar.value = value
+	_karma_bar.queue_redraw()
+	_karma_label.text = "Karma : %s" % rank
+	_karma_label.add_theme_color_override("font_color", color)
+
+
+## Grise un pouvoir indisponible et affiche le temps restant ou le niveau requis.
+func set_ability_state(id: String, available: bool, cooldown: float, locked_level := 0) -> void:
 	var l: Label = _ability_labels[id]
 	var base: String = l.get_meta("base_text")
+	if locked_level > 0:
+		l.text = "%s\n[Niveau %d]" % [base, locked_level]
+		l.modulate = Color(1, 1, 1, 0.3)
+		return
 	l.text = base if cooldown <= 0.0 else "%s  (%.1f s)" % [base, cooldown]
 	l.modulate = Color(1, 1, 1, 1) if available else Color(1, 1, 1, 0.35)
+
+
+func set_objective(text: String) -> void:
+	_objective_text.text = text
+
+
+func set_marker(active: bool, world_pos := Vector3.ZERO, color := Color(1.0, 0.8, 0.2)) -> void:
+	_marker.active = active
+	_marker_world = world_pos
+	_marker.color = color
+	if not active:
+		_marker.queue_redraw()
+
+
+func _update_marker() -> void:
+	if not _marker.active:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var screen := get_viewport().get_visible_rect().size
+	var center := screen * 0.5
+	var behind := cam.is_position_behind(_marker_world)
+	var sp := cam.unproject_position(_marker_world)
+	if behind:
+		sp = screen - sp
+	var margin := 60.0
+	var inside := not behind and sp.x > margin and sp.x < screen.x - margin and sp.y > margin and sp.y < screen.y - margin
+	_marker.on_screen = inside
+	if inside:
+		_marker.pos = sp
+	else:
+		var dir := (sp - center).normalized()
+		if dir.length() < 0.01:
+			dir = Vector2.DOWN
+		var sx := (center.x - margin) / maxf(absf(dir.x), 0.001)
+		var sy := (center.y - margin) / maxf(absf(dir.y), 0.001)
+		_marker.pos = center + dir * minf(sx, sy)
+		_marker.direction = dir
+	var dist := cam.global_position.distance_to(_marker_world)
+	_marker.label = "%d m" % int(dist)
+	_marker.queue_redraw()
+
+
+func set_prompt(text: String, progress: float) -> void:
+	_prompt.text = text
+	_prompt_bar.visible = progress > 0.0
+	_prompt_bar.value = progress
+
+
+## Petit message qui apparaît à droite puis s'efface (ex. « +25 XP »).
+func feed(text: String, color := Color(1, 1, 1)) -> void:
+	var l := _make_label(_feed, text, 18)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.add_theme_color_override("font_color", color)
+	var t := create_tween()
+	t.tween_interval(2.0)
+	t.tween_property(l, "modulate:a", 0.0, 0.6)
+	t.tween_callback(l.queue_free)
+	if _feed.get_child_count() > 6:
+		_feed.get_child(0).queue_free()
+
+
+func show_boss(visible_bar: bool) -> void:
+	_boss_box.visible = visible_bar
+
+
+func set_boss_health(value: float, max_value: float) -> void:
+	_boss_bar.max_value = max_value
+	_boss_bar.value = value
 
 
 func set_speed_effect(amount: float) -> void:
@@ -242,7 +456,7 @@ func flash_damage() -> void:
 	t.tween_property(_damage_overlay, "color:a", 0.0, 0.4)
 
 
-func show_message(text: String, duration := 2.5) -> void:
+func show_message(text: String, duration := 3.0) -> void:
 	_message.text = text
 	_message.modulate.a = 1.0
 	var t := create_tween()

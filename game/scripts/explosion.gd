@@ -6,9 +6,13 @@ const FX = preload("res://scripts/fx.gd")
 
 var color := Color(1.0, 0.5, 0.15)
 var size := 1.0
+## Petit impact (balles) : juste un flash et quelques étincelles.
+var light_only := false
 
 
 func _ready() -> void:
+	# Les civils proches s'enfuient (la position n'est connue qu'après l'ajout).
+	_scare_civilians.call_deferred()
 	# Flash : une sphère lumineuse qui grossit et s'efface.
 	var flash_mat := FX.glow_material(color.lightened(0.4), 0.9)
 	var flash := FX.sphere(0.5 * size, flash_mat)
@@ -16,6 +20,17 @@ func _ready() -> void:
 	var t := create_tween().set_parallel(true)
 	t.tween_property(flash, "scale", Vector3.ONE * 4.0, 0.35).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_EXPO)
 	t.tween_property(flash_mat, "albedo_color:a", 0.0, 0.35)
+
+	if light_only:
+		var spark := FX.particles(8, 0.3, 0.12, [Color(1, 1, 0.9, 1), color, Color(color.r, color.g, color.b, 0)], [0.0, 0.4, 1.0])
+		var spm := spark.process_material as ParticleProcessMaterial
+		spm.spread = 180.0
+		spm.initial_velocity_min = 3.0
+		spm.initial_velocity_max = 7.0
+		spm.gravity = Vector3(0, -12, 0)
+		_one_shot(spark)
+		get_tree().create_timer(0.6).timeout.connect(queue_free)
+		return
 
 	# Lumière qui éclaire le décor puis s'éteint.
 	var light := OmniLight3D.new()
@@ -73,3 +88,7 @@ func _one_shot(p: GPUParticles3D) -> void:
 	p.local_coords = false
 	add_child(p)
 	p.emitting = true
+
+
+func _scare_civilians() -> void:
+	get_tree().call_group("civilians", "scare", global_position, 18.0 * size)

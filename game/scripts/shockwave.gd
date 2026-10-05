@@ -45,6 +45,6 @@ func _ready() -> void:
 	t.tween_property(ring_mat, "albedo_color:a", 0.0, 0.5)
 	t.tween_property(light, "light_energy", 0.0, 0.5)
 
-	FX.radial_damage(get_tree(), global_position, radius, damage, impulse, "enemies", shooter)
+	FX.radial_damage(get_tree(), global_position, radius, damage, impulse, ["enemies", "civilians", "cars"], shooter)
 	FX.shake_cameras(get_tree(), global_position, 0.5)
 	get_tree().create_timer(0.8).timeout.connect(queue_free)

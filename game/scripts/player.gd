@@ -6,11 +6,14 @@ signal energy_changed(value: float, max_value: float)
 signal flight_changed(flying: bool)
 signal damaged
 signal died
+## Un pouvoir pas encore débloqué a été tenté.
+signal power_locked(power_name: String, level: int)
 
 const FX = preload("res://scripts/fx.gd")
 const Projectile = preload("res://scripts/projectile.gd")
 const BlackHole = preload("res://scripts/black_hole.gd")
 const Shockwave = preload("res://scripts/shockwave.gd")
+const Beam = preload("res://scripts/beam.gd")
 
 # --- Réglages (modifiables dans l'inspecteur) ---
 @export var walk_speed := 7.0
@@ -21,10 +24,12 @@ const Shockwave = preload("res://scripts/shockwave.gd")
 @export var fly_boost_speed := 36.0
 @export var mouse_sensitivity := 0.0025
 
-const MAX_HEALTH := 100.0
-const MAX_ENERGY := 100.0
-const ENERGY_REGEN := 20.0
+const ENERGY_REGEN := 1.5     # très lente : il faut absorber l'électricité de la ville
 const HEALTH_REGEN := 5.0
+const DRAIN_RATE := 45.0      # énergie absorbée par seconde
+const DRAIN_RANGE := 7.0
+const HELP_RANGE := 3.5
+const HELP_TIME := 1.2        # secondes pour soigner / absorber un civil
 const FIREBALL_COST := 5.0
 const FIREBALL_RATE := 0.16
 const BLACK_HOLE_COST := 45.0
@@ -34,10 +39,26 @@ const SHOCKWAVE_COOLDOWN := 3.0
 ## Vitesse minimale pour traverser un pilier (le turbo va jusqu'à 36).
 const SMASH_SPEED := 24.0
 
-const HAND_COLOR := Color(1.0, 0.5, 0.15)
+# --- Statistiques (améliorables) ---
+var max_health := 100.0
+var max_energy := 100.0
+var damage_mult := 1.0
+var black_hole_power := 1.0
+var shockwave_unlocked := false
+var black_hole_unlocked := false
+const SHOCKWAVE_LEVEL := 2
+const BLACK_HOLE_LEVEL := 3
 
-var health := MAX_HEALTH
-var energy := MAX_ENERGY
+## Couleur des pouvoirs (change avec le karma).
+var power_color := Color(1.0, 0.5, 0.15)
+
+var health := 100.0
+var energy := 60.0
+var respawn_point := Vector3.ZERO
+## Texte d'aide affiché quand on peut interagir (ex. « R : absorber »).
+var interaction_prompt := ""
+## Progression du soin / de l'absorption d'un civil (0 à 1).
+var interaction_progress := 0.0
 var flying := false
 var black_hole_cd := 0.0
 var shockwave_cd := 0.0
@@ -50,7 +71,6 @@ var _shake := 0.0
 var _since_damage := 10.0
 var _anim_time := 0.0
 var _push := Vector3.ZERO
-var _spawn_point := Vector3.ZERO
 
 var _yaw: Node3D
 var _pitch: Node3D
@@ -64,6 +84,10 @@ var _legs: Array[Node3D] = []
 var _cape: Node3D
 var _aura: GPUParticles3D
 var _dust: GPUParticles3D
+var _eye_mat: StandardMaterial3D
+var _beam: Beam
+var _help_target: Node3D = null
+var _help_time := 0.0
 
 ## Intensité de l'effet de vitesse (0 = rien, 1 = vol à pleine vitesse).
 var speed_effect := 0.0
@@ -74,7 +98,7 @@ func _ready() -> void:
 	collision_layer = 2
 	collision_mask = 1 | 4
 	floor_snap_length = 0.3
-	_spawn_point = global_position
+	respawn_point = global_position
 
 	var col := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
@@ -86,7 +110,9 @@ func _ready() -> void:
 
 	_build_model()
 	_build_camera()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_beam = Beam.new()
+	add_child(_beam)
+	set_power_color(power_color)
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +137,9 @@ func _build_model() -> void:
 	_add_part(_model, _sphere_mesh(0.2), cloth, Vector3(0, 0.84, 0.03))            # capuche
 
 	# Yeux lumineux.
-	var eye_mat := FX.emissive_material(Color(1.0, 0.6, 0.2), 6.0)
+	_eye_mat = FX.emissive_material(power_color, 6.0)
 	for x in [-0.07, 0.07]:
-		_add_part(_model, _sphere_mesh(0.03), eye_mat, Vector3(x, 0.82, -0.17))
+		_add_part(_model, _sphere_mesh(0.03), _eye_mat, Vector3(x, 0.82, -0.17))
 
 	# Bras : pivot à l'épaule, le bras pend vers le bas (-Y).
 	for side in [1, -1]:
@@ -121,10 +147,10 @@ func _build_model() -> void:
 		shoulder.position = Vector3(0.36 * side, 0.5, 0)
 		_model.add_child(shoulder)
 		_add_part(shoulder, _capsule(0.085, 0.72), cloth, Vector3(0, -0.32, 0))
-		var hand_mat := FX.emissive_material(HAND_COLOR, 1.0)
+		var hand_mat := FX.emissive_material(power_color, 1.0)
 		_add_part(shoulder, _sphere_mesh(0.1), hand_mat, Vector3(0, -0.72, 0))
 		var light := OmniLight3D.new()
-		light.light_color = HAND_COLOR
+		light.light_color = power_color
 		light.light_energy = 0.0
 		light.omni_range = 4.0
 		light.position = Vector3(0, -0.8, 0)
@@ -238,11 +264,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		var motion := event as InputEventMouseMotion
 		_yaw.rotation.y -= motion.relative.x * mouse_sensitivity
 		_pitch.rotation.x = clampf(_pitch.rotation.x - motion.relative.y * mouse_sensitivity, -1.35, 1.25)
-	elif event is InputEventMouseButton and event.is_pressed() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event.is_action_pressed("toggle_fly"):
 		_set_flying(not flying)
 
@@ -270,6 +291,7 @@ func _physics_process(delta: float) -> void:
 		_respawn()
 
 	_update_powers(delta)
+	_update_interaction(delta)
 	_update_regen(delta)
 
 
@@ -348,10 +370,16 @@ func _update_powers(delta: float) -> void:
 
 	if Input.is_action_pressed("fire") and _fire_timer <= 0.0 and energy >= FIREBALL_COST:
 		_cast_fireball()
-	if Input.is_action_just_pressed("black_hole") and black_hole_cd <= 0.0 and energy >= BLACK_HOLE_COST:
-		_cast_black_hole()
-	if Input.is_action_just_pressed("shockwave") and shockwave_cd <= 0.0 and energy >= SHOCKWAVE_COST:
-		_cast_shockwave()
+	if Input.is_action_just_pressed("black_hole"):
+		if not black_hole_unlocked:
+			power_locked.emit("Trou noir", BLACK_HOLE_LEVEL)
+		elif black_hole_cd <= 0.0 and energy >= BLACK_HOLE_COST:
+			_cast_black_hole()
+	if Input.is_action_just_pressed("shockwave"):
+		if not shockwave_unlocked:
+			power_locked.emit("Onde de choc", SHOCKWAVE_LEVEL)
+		elif shockwave_cd <= 0.0 and energy >= SHOCKWAVE_COST:
+			_cast_shockwave()
 
 
 ## Point visé au centre de l'écran (ce qui est sous le viseur).
@@ -361,7 +389,7 @@ func _aim_point(max_dist := 250.0) -> Vector3:
 	# Le rayon part au niveau du joueur, pour ne pas toucher ce qui est derrière lui.
 	var from := camera.project_ray_origin(center) + ray_dir * _spring.get_hit_length()
 	var to := from + ray_dir * max_dist
-	var q := PhysicsRayQueryParameters3D.create(from, to, 1 | 4, [get_rid()])
+	var q := PhysicsRayQueryParameters3D.create(from, to, 1 | 4 | 16, [get_rid()])
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
 		return to
@@ -383,13 +411,13 @@ func _cast_fireball() -> void:
 
 	var p := Projectile.new()
 	p.velocity = (target - origin).normalized() * 42.0 + velocity * 0.3
-	p.color = HAND_COLOR
-	p.damage = 18.0
-	p.splash_damage = 10.0
+	p.color = power_color
+	p.damage = 18.0 * damage_mult
+	p.splash_damage = 10.0 * damage_mult
 	p.splash_radius = 3.5
 	p.splash_impulse = 10.0
-	p.collision_mask = 1 | 4
-	p.target_group = "enemies"
+	p.collision_mask = 1 | 4 | 16
+	p.target_groups = ["enemies", "civilians", "cars"]
 	p.shooter = self
 	get_parent().add_child(p)
 	p.global_position = origin
@@ -413,6 +441,7 @@ func _cast_black_hole() -> void:
 
 	var bh := BlackHole.new()
 	bh.shooter = self
+	bh.power = black_hole_power
 	get_parent().add_child(bh)
 	bh.global_position = pos
 
@@ -423,33 +452,153 @@ func _cast_shockwave() -> void:
 	_both_arms = 1.0
 	var sw := Shockwave.new()
 	sw.shooter = self
+	sw.color = power_color.lightened(0.2)
+	sw.damage = 25.0 * damage_mult
 	get_parent().add_child(sw)
 	sw.global_position = global_position + Vector3.UP * 1.0
 
 
 func _use_energy(amount: float) -> void:
 	energy = maxf(energy - amount, 0.0)
-	energy_changed.emit(energy, MAX_ENERGY)
+	energy_changed.emit(energy, max_energy)
+
+
+func add_energy(amount: float) -> void:
+	energy = minf(energy + amount, max_energy)
+	energy_changed.emit(energy, max_energy)
 
 
 func _update_regen(delta: float) -> void:
-	if energy < MAX_ENERGY:
-		energy = minf(energy + ENERGY_REGEN * delta, MAX_ENERGY)
-		energy_changed.emit(energy, MAX_ENERGY)
+	if energy < max_energy:
+		add_energy(ENERGY_REGEN * delta)
 	_since_damage += delta
-	if _since_damage > 4.0 and health < MAX_HEALTH:
-		health = minf(health + HEALTH_REGEN * delta, MAX_HEALTH)
-		health_changed.emit(health, MAX_HEALTH)
+	if _since_damage > 4.0 and health < max_health:
+		health = minf(health + HEALTH_REGEN * delta, max_health)
+		health_changed.emit(health, max_health)
+
+
+# ---------------------------------------------------------------------------
+# Interactions : absorber l'électricité, soigner ou absorber un civil blessé
+# ---------------------------------------------------------------------------
+func _update_interaction(delta: float) -> void:
+	interaction_prompt = ""
+	var hand := _arms[0].global_position + (-_model.global_transform.basis.z) * 0.6
+	var busy := false
+
+	# 1) Un civil blessé à côté : soigner (R) ou absorber sa vie (T).
+	var civ := _closest_downed_civilian()
+	if civ != null:
+		interaction_prompt = "R (maintenir) : soigner        T (maintenir) : absorber sa vie"
+		var healing := Input.is_action_pressed("drain")
+		var leeching := Input.is_action_pressed("leech")
+		if healing or leeching:
+			busy = true
+			if civ != _help_target:
+				_help_target = civ
+				_help_time = 0.0
+			_help_time += delta
+			interaction_progress = clampf(_help_time / HELP_TIME, 0.0, 1.0)
+			_beam.set_color(Color(0.4, 1.0, 0.6) if healing else Color(1.0, 0.1, 0.1))
+			_beam.set_points(hand, civ.global_position + Vector3.UP * 0.4)
+			_arm_raise[0] = 1.0
+			if _help_time >= HELP_TIME:
+				if healing:
+					civ.heal()
+					FX.notify(get_tree(), "on_civilian_healed", [civ.global_position])
+				else:
+					civ.leech()
+					add_energy(max_energy)
+					health = max_health
+					health_changed.emit(health, max_health)
+					FX.notify(get_tree(), "on_civilian_leeched", [civ.global_position])
+				_help_target = null
+				_help_time = 0.0
+				interaction_progress = 0.0
+
+	# 2) Sinon : absorber l'électricité d'une source proche (R).
+	if not busy and civ == null:
+		_help_target = null
+		_help_time = 0.0
+		interaction_progress = 0.0
+		var source := _closest_energy_source()
+		if source != null:
+			if energy < max_energy:
+				interaction_prompt = "R (maintenir) : absorber l'électricité"
+			if Input.is_action_pressed("drain") and energy < max_energy:
+				busy = true
+				var got: float = source.drain(DRAIN_RATE * delta)
+				add_energy(got)
+				_beam.set_color(power_color.lightened(0.3))
+				_beam.set_points(source.get_drain_point(), hand)
+				_arm_raise[0] = 1.0
+				_hand_lights[0].light_energy = 5.0
+				add_shake(0.01)
+
+	if not busy:
+		_beam.hide_beam()
+		if civ == null:
+			interaction_progress = 0.0
+
+
+func _closest_downed_civilian() -> Node3D:
+	var best: Node3D = null
+	var best_d := HELP_RANGE
+	for c in get_tree().get_nodes_in_group("civilians"):
+		var n := c as Node3D
+		if n == null or not n.has_method("is_downed") or not n.is_downed():
+			continue
+		var d := n.global_position.distance_to(global_position)
+		if d < best_d:
+			best_d = d
+			best = n
+	return best
+
+
+func _closest_energy_source() -> Node3D:
+	var best: Node3D = null
+	var best_d := DRAIN_RANGE
+	for s in get_tree().get_nodes_in_group("energy_source"):
+		var n := s as Node3D
+		if n == null or not n.has_energy():
+			continue
+		var d := n.get_drain_point().distance_to(global_position + Vector3.UP)
+		if d < best_d:
+			best_d = d
+			best = n
+	return best
+
+
+# ---------------------------------------------------------------------------
+# Karma et améliorations
+# ---------------------------------------------------------------------------
+func set_power_color(c: Color) -> void:
+	power_color = c
+	if _eye_mat != null:
+		_eye_mat.emission = c
+	for m in _hand_mats:
+		m.emission = c
+	for l in _hand_lights:
+		l.light_color = c
+	if _aura != null:
+		var am := _aura.process_material as ParticleProcessMaterial
+		am.color_ramp = FX.gradient_texture([Color(c.r, c.g, c.b, 0), Color(c.r, c.g, c.b, 0.8), Color(c.r * 0.5, c.g * 0.5, c.b * 0.5, 0)], [0.0, 0.3, 1.0])
+
+
+func full_heal() -> void:
+	health = max_health
+	energy = max_energy
+	health_changed.emit(health, max_health)
+	energy_changed.emit(energy, max_energy)
 
 
 # ---------------------------------------------------------------------------
 # Dégâts
 # ---------------------------------------------------------------------------
-func take_damage(amount: float, _from: Vector3, _silent := false) -> void:
+func take_damage(amount: float, _from: Vector3, _silent := false, _attacker: Node = null) -> void:
 	health -= amount
 	_since_damage = 0.0
 	add_shake(0.25)
-	health_changed.emit(maxf(health, 0.0), MAX_HEALTH)
+	health_changed.emit(maxf(health, 0.0), max_health)
 	damaged.emit()
 	if health <= 0.0:
 		_respawn()
@@ -460,14 +609,14 @@ func apply_push(v: Vector3) -> void:
 
 
 func _respawn() -> void:
-	health = MAX_HEALTH
-	energy = MAX_ENERGY
+	health = max_health
+	energy = max_energy
 	velocity = Vector3.ZERO
 	_push = Vector3.ZERO
-	global_position = _spawn_point
+	global_position = respawn_point
 	_set_flying(false)
-	health_changed.emit(health, MAX_HEALTH)
-	energy_changed.emit(energy, MAX_ENERGY)
+	health_changed.emit(health, max_health)
+	energy_changed.emit(energy, max_energy)
 	died.emit()
 
 
